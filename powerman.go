@@ -181,7 +181,6 @@ func run() error {
 	var ledport = 19
 	var btnport = 26
 	var debounce = 5 * time.Second
-	var command = []string{}
 
 	var me = filepath.Base(os.Args[0])
 
@@ -196,7 +195,8 @@ func run() error {
 		waitfor = "low"
 	}
 
-	if len(flag.Args()) == 0 {
+	command := flag.Args()
+	if len(command) == 0 {
 		return fmt.Errorf("Command to run has not been specified - need arguments to %v", me)
 	}
 
