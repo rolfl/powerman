@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +21,10 @@ func monitorPort(vals <-chan gopisysfs.Event, state bool, debounce time.Duration
 	for {
 		select {
 		case e, ok := <-vals:
+			if !ok {
+				close(ch)
+				return
+			}
 			if e.Value == state {
 				bounceout = time.After(debounce)
 			} else {
@@ -73,11 +76,11 @@ func runflash(gpio gopisysfs.GPIOPort, ch <-chan bool) {
 			return
 		}
 		val = !val
-		gpio.SetVal(val)
+		gpio.SetValue(val)
 	}
 }
 
-func flash(int port) (chan<- bool, error) {
+func flash(port int) (chan<- bool, error) {
 	pi := gopisysfs.GetPi()
 
 	var err error
@@ -121,9 +124,10 @@ func runCommand(flasher chan<- bool, command []string) error {
 
 	go func() {
 		tick := time.NewTicker(200 * time.Millisecond)
+		defer tick.Stop()
 		for {
 			select {
-			case <-tick:
+			case <-tick.C:
 				flasher <- true
 			case <-dead:
 				return
@@ -174,7 +178,7 @@ func run() error {
 		return fmt.Errorf("Unable to activate LED on port %v: %v", ledport, err)
 	}
 
-	event, err := waitFor(btnport, waitfor, debounce)
+	event, err := waitFor(btnport, !dilow, debounce)
 	if err != nil {
 		return fmt.Errorf("Unable to activate listener on port %v: %v", btnport, err)
 	}
@@ -188,17 +192,18 @@ func run() error {
 		syscall.SIGQUIT)
 
 	tick := time.NewTicker(500 * time.Millisecond)
+	defer tick.Stop()
 	for {
 		select {
-		case <-tick:
+		case <-tick.C:
 			flasher <- true
 		case <-event:
-			err := runcommand(flasher, command)
+			err := runCommand(flasher, command)
 			if err != nil {
 				return err
 			}
 		case s := <-sigc:
-			return fmt.Errorln("Signal received: %v\n", s)
+			return fmt.Errorf("Signal received: %v\n", s)
 		}
 	}
 	return nil
