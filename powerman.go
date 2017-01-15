@@ -86,15 +86,17 @@ func waitFor(port int, state bool, debounce time.Duration) (<-chan bool, func(),
 
 }
 
-func runflash(gpio gopisysfs.GPIOPort, ch <-chan bool) {
-	val := false
+func runflash(gch chan<- bool, errch <-chan error, ch <-chan bool) {
 	for {
-		_, ok := <-ch
-		if !ok {
+		select {
+		case <-errch:
 			return
+		case v, ok := <-ch:
+			if !ok {
+				return
+			}
+			gch <- v
 		}
-		val = !val
-		gpio.SetValue(val)
 	}
 }
 
@@ -130,14 +132,15 @@ func flash(port int) (chan<- bool, func(), error) {
 		return nil, nil, err
 	}
 
-	err = gpio.SetValue(false)
+	setch := make(chan bool, 100)
+	errch, err := gpio.SetValues(setch)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	ch := make(chan bool, 100)
 
-	go runflash(gpio, ch)
+	go runflash(setch, errch, ch)
 
 	ondie = nil
 
@@ -157,10 +160,12 @@ func runCommand(flasher chan<- bool, command []string) error {
 	go func() {
 		tick := time.NewTicker(100 * time.Millisecond)
 		defer tick.Stop()
+		v := true
 		for {
 			select {
 			case <-tick.C:
-				flasher <- true
+				flasher <- v
+				v = !v
 			case <-dead:
 				return
 			}
@@ -230,11 +235,9 @@ func run() error {
 	for {
 		select {
 		case <-tick.C:
-			if fcnt <= 1 {
-				flasher <- true
-			}
 			fcnt++
-			fcnt %= 5
+			fcnt %= 10
+			flasher <- fcnt < 1
 		case <-event:
 			err := runCommand(flasher, command)
 			if err != nil {
