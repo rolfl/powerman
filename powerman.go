@@ -155,7 +155,7 @@ func runCommand(flasher chan<- bool, command []string) error {
 	defer close(dead)
 
 	go func() {
-		tick := time.NewTicker(200 * time.Millisecond)
+		tick := time.NewTicker(100 * time.Millisecond)
 		defer tick.Stop()
 		for {
 			select {
@@ -223,12 +223,18 @@ func run() error {
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
 
-	tick := time.NewTicker(500 * time.Millisecond)
+	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
+
+	fcnt := 0
 	for {
 		select {
 		case <-tick.C:
-			flasher <- true
+			if fcnt <= 1 {
+				flasher <- true
+			}
+			fcnt++
+			fcnt %= 5
 		case <-event:
 			err := runCommand(flasher, command)
 			if err != nil {
