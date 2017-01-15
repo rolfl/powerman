@@ -198,8 +198,8 @@ func run() error {
 		waitfor = "low"
 	}
 
-	if len(os.Args) > 1 {
-		command = os.Args[1:]
+	if len(flag.Args()) > 0 {
+		command = flag.Args()
 	}
 
 	log.Printf("OS Args: %v\n", os.Args)
