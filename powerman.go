@@ -38,33 +38,51 @@ func monitorPort(vals <-chan gopisysfs.Event, state bool, debounce time.Duration
 	}
 }
 
-func waitFor(port int, state bool, debounce time.Duration) (<-chan bool, error) {
+func waitFor(port int, state bool, debounce time.Duration) (<-chan bool, func(), error) {
 	pi := gopisysfs.GetPi()
+
+	var ondie func()
+	defer func() {
+		if ondie != nil {
+			ondie()
+		}
+	}()
 
 	var err error
 
 	gpio, err := pi.GetPort(port)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	err = gpio.Enable()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	cleanup := func() {
+		gpio.Reset()
+	}
+
+	ondie = cleanup
 
 	err = gpio.SetMode(gopisysfs.GPIOInput)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	inputs, err := gpio.Values(100)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	ch := make(chan bool, 1)
 
 	go monitorPort(inputs, state, debounce, ch)
 
-	return ch, nil
+	ondie = nil
+
+	return ch, cleanup, nil
 
 }
 
@@ -80,36 +98,50 @@ func runflash(gpio gopisysfs.GPIOPort, ch <-chan bool) {
 	}
 }
 
-func flash(port int) (chan<- bool, error) {
+func flash(port int) (chan<- bool, func(), error) {
 	pi := gopisysfs.GetPi()
+
+	var ondie func()
+	defer func() {
+		if ondie != nil {
+			ondie()
+		}
+	}()
 
 	var err error
 
 	gpio, err := pi.GetPort(port)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	err = gpio.Enable()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	cleanup := func() {
+		gpio.Reset()
+	}
+	ondie = cleanup
 
 	err = gpio.SetMode(gopisysfs.GPIOOutputLow)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	err = gpio.SetValue(false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	ch := make(chan bool, 100)
 
 	go runflash(gpio, ch)
 
-	return ch, nil
+	ondie = nil
+
+	return ch, cleanup, nil
 
 }
 
@@ -173,15 +205,17 @@ func run() error {
 	log.Printf("OS Args: %v\n", os.Args)
 	log.Printf("Running %v monitoring port %v for state %v with LED on %v and command: '%v'\n", me, btnport, waitfor, ledport, strings.Join(command, "', '"))
 
-	flasher, err := flash(ledport)
+	flasher, fclean, err := flash(ledport)
 	if err != nil {
 		return fmt.Errorf("Unable to activate LED on port %v: %v", ledport, err)
 	}
+	defer fclean()
 
-	event, err := waitFor(btnport, !dilow, debounce)
+	event, bclean, err := waitFor(btnport, !dilow, debounce)
 	if err != nil {
 		return fmt.Errorf("Unable to activate listener on port %v: %v", btnport, err)
 	}
+	defer bclean()
 
 	// catch various kill signals.
 	sigc := make(chan os.Signal, 1)
