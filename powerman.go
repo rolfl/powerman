@@ -237,7 +237,7 @@ func run() error {
 		case <-tick.C:
 			fcnt++
 			fcnt %= 10
-			flasher <- fcnt < 1
+			flasher <- fcnt > 0
 		case <-event:
 			err := runCommand(flasher, command)
 			if err != nil {
